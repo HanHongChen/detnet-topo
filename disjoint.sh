@@ -1,0 +1,1 @@
+sudo mn --custom=disjoint.py --topo=dualpath --controller=remote,ip=127.0.0.1,port=6653 --switch=ovs,protocols=OpenFlow14
