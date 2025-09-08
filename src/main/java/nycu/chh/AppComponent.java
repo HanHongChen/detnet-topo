@@ -101,10 +101,14 @@ public class AppComponent {
         appId = coreService.registerApplication("nycu.chh.detnet.topo");
         log.warn("DetNet Controller Activated with App ID: {}", appId.id());
 
-        Host src1 = hostService.getHost(HostId.hostId("00:00:00:00:00:01-None"));
-        Host dst1 = hostService.getHost(HostId.hostId("00:00:00:00:00:06-None"));
-        Host src2 = hostService.getHost(HostId.hostId("00:00:00:00:00:02-None"));
-        Host dst2 = hostService.getHost(HostId.hostId("00:00:00:00:00:05-None"));
+        // free5gc enp0s8
+        Host src1 = hostService.getHost(HostId.hostId("08:00:27:90:a4:e5/None"));
+        // server enp0s8
+        Host dst1 = hostService.getHost(HostId.hostId("08:00:27:33:ec:3a-None"));
+        // free5gc enp0s9
+        Host src2 = hostService.getHost(HostId.hostId("08:00:27:c5:f1:89-None"));
+        // server enp0s9
+        Host dst2 = hostService.getHost(HostId.hostId("08:00:27:eb:c2:92-None"));
         log.warn("src1{} dst1{}", src1, dst1);
         log.warn("src2{} dst2{}", src2, dst2);
         List<Path> disPathWithHost = findNodeDisjointPathsWithHost(
@@ -168,7 +172,9 @@ public class AppComponent {
         log.info("Stopped");
     }
     
-    public void installPathFlowWithHost(Path path, Host srcHost, Host dstHost, ApplicationId appId, FlowRuleService flowRuleService) {
+    public void installPathFlowWithHost(Path path, Host srcHost, Host dstHost, 
+        ApplicationId appId, 
+        FlowRuleService flowRuleService) {
         List<Link> links = path.links();
 
         // === 去程：srcHost → dstHost ===
@@ -179,12 +185,23 @@ public class AppComponent {
                 srcHost.location().deviceId(),
                 srcHost.location().port(),
                 firstLink.src().port(),
-                50000, appId, flowRuleService);
+                50000, appId, flowRuleService, (short)0x0800);//IPV4
+            applyPortFlowRule(
+                srcHost.location().deviceId(),
+                srcHost.location().port(),
+                firstLink.src().port(),
+                50000, appId, flowRuleService, (short)0x0806);//ARP
+
             applyPortFlowRule(
                 srcHost.location().deviceId(),
                 firstLink.src().port(),
                 srcHost.location().port(),
-                50000, appId, flowRuleService);
+                50000, appId, flowRuleService, (short)0x0800);
+            applyPortFlowRule(
+                srcHost.location().deviceId(),
+                firstLink.src().port(),
+                srcHost.location().port(),
+                50000, appId, flowRuleService, (short)0x0806);
         }
         // 2. 中間switch: 前一條link的dst port → 下一條link的src port
         for (int i = 0; i < links.size() - 1; i++) {
@@ -194,13 +211,26 @@ public class AppComponent {
                 prev.dst().deviceId(),
                 prev.dst().port(),
                 next.src().port(),
-                50000, appId, flowRuleService
+                50000, appId, flowRuleService, (short)0x0800
+            );
+            applyPortFlowRule(
+                prev.dst().deviceId(),
+                prev.dst().port(),
+                next.src().port(),
+                50000, appId, flowRuleService, (short)0x0806
+            );
+            
+            applyPortFlowRule(
+                prev.dst().deviceId(),
+                next.src().port(),
+                prev.dst().port(),
+                50000, appId, flowRuleService, (short)0x0800
             );
             applyPortFlowRule(
                 prev.dst().deviceId(),
                 next.src().port(),
                 prev.dst().port(),
-                50000, appId, flowRuleService
+                50000, appId, flowRuleService, (short)0x0806
             );
         }
         // 3. 終點switch: 最後一條link的dst port → dstHost port
@@ -210,13 +240,26 @@ public class AppComponent {
                 dstHost.location().deviceId(),
                 lastLink.dst().port(),
                 dstHost.location().port(),
-                50000, appId, flowRuleService
+                50000, appId, flowRuleService, (short)0x0800
+            );
+            applyPortFlowRule(
+                dstHost.location().deviceId(),
+                lastLink.dst().port(),
+                dstHost.location().port(),
+                50000, appId, flowRuleService, (short)0x0806
+            );
+
+            applyPortFlowRule(
+                dstHost.location().deviceId(),
+                dstHost.location().port(),
+                lastLink.dst().port(),
+                50000, appId, flowRuleService, (short)0x0800
             );
             applyPortFlowRule(
                 dstHost.location().deviceId(),
                 dstHost.location().port(),
                 lastLink.dst().port(),
-                50000, appId, flowRuleService
+                50000, appId, flowRuleService, (short)0x0806
             );
         }
 
@@ -224,9 +267,10 @@ public class AppComponent {
 
     // Helper function: 安裝只配對port的flow rule
     private void applyPortFlowRule(DeviceId deviceId, PortNumber inPort, PortNumber outPort, int priority,
-                                ApplicationId appId, FlowRuleService flowRuleService) {
+                                ApplicationId appId, FlowRuleService flowRuleService, short ethType) {
         TrafficSelector selector = DefaultTrafficSelector.builder()
             .matchInPort(inPort)
+            .matchEthType(ethType)
             .build();
         TrafficTreatment treatment = DefaultTrafficTreatment.builder()
             .setOutput(outPort)
@@ -254,7 +298,7 @@ public class AppComponent {
             .stream().collect(Collectors.toList());
         List<Path> paths2 = topologyService.getPaths(topologyService.currentTopology(), src2, dst2)
             .stream().collect(Collectors.toList());
-
+        log.warn("paths1{}, paths2{}", paths1, paths2);
         for (Path p1 : paths1) {
             Set<DeviceId> nodes1 = getIntermediateNodes(p1, src1, dst1);
             // 把 src/dst host 的 deviceId/port(ConnectPoint)也加進去
