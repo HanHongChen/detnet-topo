@@ -15,6 +15,7 @@
  */
 package nycu.chh;
 
+import org.onlab.packet.IpAddress;
 import org.onlab.packet.IpPrefix;
 import org.onlab.packet.MacAddress;
 import org.onosproject.cfg.ComponentConfigService;
@@ -90,17 +91,86 @@ public class AppComponent {
         linkService, 
         hostService);
 
-    private HostListenerImpl hostListener;
-    private DeviceListenerImpl deviceListener;
-    private LinkListenerImpl linkListener;
+    private HostListener hostListener;
+    private DeviceListener deviceListener;
+    private LinkListener linkListener;
+
+    boolean isInstalled = false;
+    private static final Set<String> TARGET_HOST_IPS = Set.of(
+        "192.168.56.10", // upf1
+        "192.168.57.10", // upf2
+        "192.168.58.20", // srv-nic1
+        "192.168.59.20"  // srv-nic2
+    );
+    private static final Set<DeviceId> TARGET_OVS = Set.of(
+        DeviceId.deviceId("of:0000000000000001"),
+        DeviceId.deviceId("of:0000000000000002"),
+        DeviceId.deviceId("of:0000000000000003"),
+        DeviceId.deviceId("of:0000000000000004"),
+        DeviceId.deviceId("of:0000000000000005"),
+        DeviceId.deviceId("of:0000000000000006")
+    );
+
 
     @Activate
     protected void activate() {
         // cfgService.registerProperties(getClass());
-        log.info("Started");
         appId = coreService.registerApplication("nycu.chh.detnet.topo");
         log.warn("DetNet Controller Activated with App ID: {}", appId.id());
 
+        hostListener = new HostListener() {
+            @Override
+            public void event(HostEvent event) {
+                HostEvent.Type type = event.type();
+                if (type == HostEvent.Type.HOST_ADDED) {
+                    // 新增 host
+                    log.info("Host added: {}", event.subject());
+                    checkAndInstallDisjointPaths();
+                }
+            }
+        };
+        deviceListener = new DeviceListener() {
+            @Override
+            public void event(DeviceEvent event) {
+                DeviceEvent.Type type = event.type();
+                if (type == DeviceEvent.Type.DEVICE_ADDED) {
+                    log.info("Device added: {}", event.subject());
+                    checkAndInstallDisjointPaths();
+                } 
+            }
+        };
+
+        hostService.addListener(hostListener);
+        deviceService.addListener(deviceListener);
+
+    }
+
+    private void checkAndInstallDisjointPaths(){
+        if(isInstalled) return;
+        for (DeviceId devId : TARGET_OVS) {
+            if (deviceService.getDevice(devId) == null) {
+                log.info("Device {} not ready yet, waiting...", devId);
+                return;
+            }
+        }
+        Set<Host> readyHosts = new HashSet<>();
+        for (Host host : hostService.getHosts()) {
+            for (IpAddress ip : host.ipAddresses()) {
+                if (TARGET_HOST_IPS.contains(ip.toString())) {
+                    readyHosts.add(host);
+                }
+            }
+        }
+        if (readyHosts.size() < 4) {
+            log.info("Not all target hosts are ready yet, waiting...");
+            return;
+        }
+
+        installFlowRule();
+        isInstalled = true;
+    }
+
+    private void installFlowRule(){
         // free5gc enp0s8
         Host src1 = hostService.getHost(HostId.hostId("08:00:27:90:a4:e5/None"));
         // server enp0s8
@@ -121,52 +191,13 @@ public class AppComponent {
             installPathFlowWithHost(disPathWithHost.get(0), src1, dst1, appId, flowRuleService);
             installPathFlowWithHost(disPathWithHost.get(1), src2, dst2, appId, flowRuleService);
         }
-        
-        // Device src1 = deviceService.getDevice(DeviceId.deviceId("of:0000000000000001"));
-        // Device src2 = deviceService.getDevice(DeviceId.deviceId("of:0000000000000002"));
-        // Device dst1 = deviceService.getDevice(DeviceId.deviceId("of:0000000000000006"));
-        // Device dst2 = deviceService.getDevice(DeviceId.deviceId("of:0000000000000005"));
-        // List<Path> disjointPaths = findNodeDisjointPaths(
-        //     src1.id(),
-        //     dst1.id(),
-        //     src2.id(),
-        //     dst2.id()
-        //     );
-
-        // if(disjointPaths != null){
-        //     installPathForwarding(disjointPaths.get(0));
-        //     installPathForwarding(disjointPaths.get(1));
-        // } 
-
-
-        // topologyService.addListener(topoListener);
-        // deviceListener = new DeviceListenerImpl(deviceService);
-        // hostListener = new HostListenerImpl(hostService);
-        // linkListener = new LinkListenerImpl(linkService);
-        // deviceService.addListener(deviceListener);
-        // hostService.addListener(hostListener);
-        // linkService.addListener(linkListener);
-        //         // 取得全部設備
-        // for (Device device : deviceService.getDevices()) {
-        //     log.info("Device: {}", device.id());
-        // }
-
-        // // 取得全部連線
-        // for (Link link : linkService.getLinks()) {
-        //     log.info("Link: {} -> {}", link.src(), link.dst());
-        // }
-
-        // // 取得全部主機
-        // for (Host host : hostService.getHosts()) {
-        //     log.info("Host: {} IPs:{} Location:{}", host.mac(), host.ipAddresses(), host.location());
-        // }
     }
 
     @Deactivate
     protected void deactivate() {
         // topologyService.removeListener(topoListener);
-        // deviceService.removeListener(deviceListener);
-        // hostService.removeListener(hostListener);
+        deviceService.removeListener(deviceListener);
+        hostService.removeListener(hostListener);
         // linkService.removeListener(linkListener);
         // cfgService.unregisterProperties(getClass(), false);
         log.info("Stopped");
