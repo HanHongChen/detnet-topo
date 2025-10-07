@@ -34,26 +34,19 @@ import org.onosproject.net.flow.TrafficTreatment;
 import org.onosproject.net.host.*;
 import org.onosproject.net.intent.IntentService;
 import org.onosproject.net.link.*;
-import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Deactivate;
-import org.osgi.service.component.annotations.Modified;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import nycu.chh.listener.DeviceListenerImpl;
-import nycu.chh.listener.HostListenerImpl;
-import nycu.chh.listener.LinkListenerImpl;
 import nycu.chh.listener.TopoListener;
 
 import java.util.Arrays;
-import java.util.Dictionary;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -117,7 +110,7 @@ public class AppComponent {
         // cfgService.registerProperties(getClass());
         appId = coreService.registerApplication("nycu.chh.detnet.topo");
         log.warn("DetNet Controller Activated with App ID: {}", appId.id());
-
+        checkAndInstallDisjointPaths();
         hostListener = new HostListener() {
             @Override
             public void event(HostEvent event) {
